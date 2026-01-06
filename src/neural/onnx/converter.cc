@@ -56,11 +56,17 @@ class Converter {
             const WeightsToOnnxConverterOptions& options)
       : src_(net),
         options_(options),
-        default_activation_(
-            net.format().network_format().default_activation() ==
-                    pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH
-                ? ACTIVATION_MISH
-                : ACTIVATION_RELU),
+        default_activation_([&]() {
+          switch (net.format().network_format().default_activation()) {
+            case pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH:
+              return ACTIVATION_MISH;
+            case pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH:
+              return ACTIVATION_SWISH;
+            case pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU:
+            default:
+              return ACTIVATION_RELU;
+          }
+        }()),
         default_eps_(net.format().network_format().input_embedding() ==
                              pblczero::NetworkFormat::INPUT_EMBEDDING_PE_DENSE
                          ? 1e-3
@@ -1187,6 +1193,7 @@ void CheckSrcFormat(const pblczero::NetworkFormat& nf) {
   switch (nf.default_activation()) {
     case pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU:
     case pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH:
+    case pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH:
       break;
     default:
       throw Exception("Default activation " +

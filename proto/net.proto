@@ -352,6 +352,7 @@ message NetworkFormat {
   enum DefaultActivation {
     DEFAULT_ACTIVATION_RELU = 0;
     DEFAULT_ACTIVATION_MISH = 1;
+    DEFAULT_ACTIVATION_SWISH = 2;
   }
   optional DefaultActivation default_activation = 7;
 

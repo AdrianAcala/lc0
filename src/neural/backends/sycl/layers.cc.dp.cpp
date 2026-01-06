@@ -782,7 +782,8 @@ FusedWinogradConvSELayer<DataType>::FusedWinogradConvSELayer(
       se_k_(se_k),
       op_nhcw_(op_nhcw){
 
-  if (act_ != ACTIVATION_RELU && act_ != ACTIVATION_MISH && act_ != ACTIVATION_NONE) {
+  if (act_ != ACTIVATION_RELU && act_ != ACTIVATION_MISH &&
+      act_ != ACTIVATION_SWISH && act_ != ACTIVATION_NONE) {
     throw Exception("Unsupported activation for fused winograd conv SE layer.");
   }
 
@@ -1080,6 +1081,26 @@ void FusedWinogradConvSELayer<DataType>::Eval(
           nullptr, nullptr, nullptr, sycl_queue);
     else
       throw Exception("unsupported network type!");
+  } else if (act_ == ACTIVATION_SWISH) {
+    if (has_se_ && use_bias_ && skip_add_)
+      OutputTransform<DataType, true, ACTIVATION_SWISH, true, true, false, false>(
+          N, C, se_k_, output, transformed_output, input2, biases_, w1_, b1_,
+          w2_, b2_, sycl_queue);
+    else if (!has_se_ && use_bias_ && !skip_add_) {
+      if (op_nhcw_)
+        OutputTransform<DataType, false, ACTIVATION_SWISH, true, false, false, true>(
+            N, C, 0, output, transformed_output, nullptr, biases_, nullptr,
+            nullptr, nullptr, nullptr, sycl_queue);
+      else
+        OutputTransform<DataType, false, ACTIVATION_SWISH, true, false, false, false>(
+            N, C, 0, output, transformed_output, nullptr, biases_, nullptr,
+            nullptr, nullptr, nullptr, sycl_queue);
+    } else if (!has_se_ && use_bias_ && skip_add_)
+      OutputTransform<DataType, false, ACTIVATION_SWISH, true, true, false, false>(
+          N, C, 0, output, transformed_output, input2, biases_, nullptr,
+          nullptr, nullptr, nullptr, sycl_queue);
+    else
+      throw Exception("unsupported network type!");
   } else
     throw Exception("unsupported network type!");
 }
@@ -1304,7 +1325,8 @@ ResidualBlock<DataType>::ResidualBlock(BaseLayer<DataType>* ip, int C, bool se,
       shared_mem_size_(shared_mem_size),
       act_(activation) {
 
-  if (act_ != ACTIVATION_RELU && act_ != ACTIVATION_MISH) {
+  if (act_ != ACTIVATION_RELU && act_ != ACTIVATION_MISH &&
+      act_ != ACTIVATION_SWISH) {
     throw Exception("Unsupported activation for residual block.");
   }
 
@@ -1468,6 +1490,10 @@ void ResidualBlock<DataType>::Eval(int N, DataType* output,
     OutputInputTransform<DataType, false, ACTIVATION_MISH, true, false>(
         N, C, 0, transformed_input, transformed_output, nullptr, biases0_,
         nullptr, nullptr, nullptr, nullptr, sycl_queue);
+  } else if (act_ == ACTIVATION_SWISH) {
+    OutputInputTransform<DataType, false, ACTIVATION_SWISH, true, false>(
+        N, C, 0, transformed_input, transformed_output, nullptr, biases0_,
+        nullptr, nullptr, nullptr, nullptr, sycl_queue);
   }
   // "transformed_input" tensor now contains transformed input for the next
   // convolution
@@ -1537,6 +1563,35 @@ void ResidualBlock<DataType>::Eval(int N, DataType* output,
         }
       } else
         OutputInputTransform<DataType, false, ACTIVATION_MISH, true, true>(
+            N, C, se_k_, output, transformed_output, input, biases1_, w1_, b1_,
+            w2_, b2_, sycl_queue);
+    }
+  } else if (act_ == ACTIVATION_SWISH) {
+    if (last_block_) {
+      if (has_se_)
+        OutputTransform<DataType, true, ACTIVATION_SWISH, true, true, true,
+                        false>(N, C, se_k_, output, transformed_output, input,
+                               biases1_, w1_, b1_, w2_, b2_, sycl_queue);
+      else
+        OutputTransform<DataType, false, ACTIVATION_SWISH, true, true, true,
+                        false>(N, C, se_k_, output, transformed_output, input,
+                               biases1_, w1_, b1_, w2_, b2_, sycl_queue);
+    } else {
+      if (has_se_) {
+        if (allowFusing) {
+          OutputInputTransform<DataType, true, ACTIVATION_SWISH, true, true>(
+              N, C, se_k_, output, transformed_output, input, biases1_, w1_,
+              b1_, w2_, b2_, sycl_queue);
+        } else {
+          OutputTransform<DataType, true, ACTIVATION_SWISH, true, true, true,
+                          true>(N, C, se_k_, (DataType*)input,
+                                transformed_output, input, biases1_, w1_, b1_,
+                                w2_, b2_, sycl_queue);
+          InputTransform<DataType, true>(N, C, output, (DataType*)input,
+                                         sycl_queue);
+        }
+      } else
+        OutputInputTransform<DataType, false, ACTIVATION_SWISH, true, true>(
             N, C, se_k_, output, transformed_output, input, biases1_, w1_, b1_,
             w2_, b2_, sycl_queue);
     }

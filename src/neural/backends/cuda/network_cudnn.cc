@@ -350,8 +350,22 @@ class CudnnNetwork : public Network {
       has_se_ = true;
     }
 
-    const bool mish_net = file.format().network_format().default_activation() ==
-                          pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH;
+    ActivationFunction act = ACTIVATION_RELU;
+    switch (file.format().network_format().default_activation()) {
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU:
+        act = ACTIVATION_RELU;
+        break;
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH:
+        act = ACTIVATION_MISH;
+        break;
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH:
+        act = ACTIVATION_SWISH;
+        break;
+      default:
+        // Keep the previous behavior for unknown values.
+        act = ACTIVATION_RELU;
+        break;
+    }
 
     // 1. Allocate scratch space (used internally by cudnn to run convolutions,
     //     and also for format/layout conversion for weights).
@@ -430,16 +444,15 @@ class CudnnNetwork : public Network {
     // Input.
     if (use_custom_winograd_) {
       auto inputConv = std::make_unique<FusedWinogradConvSELayer<DataType>>(
-          nullptr, kNumFilters, 8, 8, kNumInputPlanes,
-          mish_net ? ACTIVATION_MISH : ACTIVATION_RELU, true, false, false, 0,
+          nullptr, kNumFilters, 8, 8, kNumInputPlanes, act, true, false, false,
+          0,
           use_gemm_ex, use_res_block_winograd_fuse_opt_);
       inputConv->LoadWeights(&weights.input.weights[0],
                              &weights.input.biases[0], scratch_mem_);
       network_.emplace_back(std::move(inputConv));
     } else {
       auto inputConv = std::make_unique<ConvLayer<DataType>>(
-          nhwc_, kNumFilters, 8, 8, 3, kNumInputPlanes,
-          mish_net ? ACTIVATION_MISH : ACTIVATION_RELU, true);
+          nhwc_, kNumFilters, 8, 8, 3, kNumInputPlanes, act, true);
       inputConv->LoadWeights(&weights.input.weights[0],
                              &weights.input.biases[0], scratch_mem_);
       network_.emplace_back(std::move(inputConv));
@@ -455,8 +468,7 @@ class CudnnNetwork : public Network {
           auto layer = std::make_unique<ResidualBlock<DataType>>(
               getLastLayer(), kNumFilters, has_se, se_k, use_gemm_ex,
               block == 0, block == (numBlocks_ - 1),
-              mish_net ? ACTIVATION_MISH : ACTIVATION_RELU,
-              deviceProp.sharedMemPerBlockOptin);
+              act, deviceProp.sharedMemPerBlockOptin);
           layer->LoadWeights0(&weights.residual[block].conv1.weights[0],
                               &weights.residual[block].conv1.biases[0],
                               scratch_mem_);
@@ -473,8 +485,7 @@ class CudnnNetwork : public Network {
         } else {
           auto conv1 = std::make_unique<FusedWinogradConvSELayer<DataType>>(
               getLastLayer(), kNumFilters, 8, 8, kNumFilters,
-              mish_net ? ACTIVATION_MISH : ACTIVATION_RELU, true, false, false,
-              0, use_gemm_ex);
+              act, true, false, false, 0, use_gemm_ex);
           conv1->LoadWeights(&weights.residual[block].conv1.weights[0],
                              &weights.residual[block].conv1.biases[0],
                              scratch_mem_);
@@ -482,8 +493,7 @@ class CudnnNetwork : public Network {
 
           auto conv2 = std::make_unique<FusedWinogradConvSELayer<DataType>>(
               getLastLayer(), kNumFilters, 8, 8, kNumFilters,
-              mish_net ? ACTIVATION_MISH : ACTIVATION_RELU, true, true, has_se,
-              se_k, use_gemm_ex);
+              act, true, true, has_se, se_k, use_gemm_ex);
           conv2->LoadWeights(&weights.residual[block].conv2.weights[0],
                              &weights.residual[block].conv2.biases[0],
                              scratch_mem_);
@@ -499,7 +509,7 @@ class CudnnNetwork : public Network {
       } else {
         auto conv1 = std::make_unique<ConvLayer<DataType>>(
             getLastLayer(), kNumFilters, 8, 8, 3, kNumFilters,
-            mish_net ? ACTIVATION_MISH : ACTIVATION_RELU, true);
+            act, true);
         conv1->LoadWeights(&weights.residual[block].conv1.weights[0],
                            &weights.residual[block].conv1.biases[0],
                            scratch_mem_);
@@ -510,8 +520,7 @@ class CudnnNetwork : public Network {
 
         auto conv2 = std::make_unique<ConvLayer<DataType>>(
             getLastLayer(), kNumFilters, 8, 8, 3, kNumFilters,
-            useReluAndBias ? (mish_net ? ACTIVATION_MISH : ACTIVATION_RELU)
-                           : ACTIVATION_NONE,
+            useReluAndBias ? act : ACTIVATION_NONE,
             useReluAndBias);
         conv2->LoadWeights(
             &weights.residual[block].conv2.weights[0],
@@ -522,8 +531,7 @@ class CudnnNetwork : public Network {
         if (weights.residual[block].has_se) {
           int numFCOut = (int)weights.residual[block].se.b1.size();
           auto se = std::make_unique<SELayer<DataType>>(
-              getLastLayer(), numFCOut, false,
-              mish_net ? ACTIVATION_MISH : ACTIVATION_RELU);
+              getLastLayer(), numFCOut, false, act);
           se->LoadWeights(&weights.residual[block].se.w1[0],
                           &weights.residual[block].se.b1[0],
                           &weights.residual[block].se.w2[0],
@@ -1253,7 +1261,9 @@ std::unique_ptr<Network> MakeCudnnNetwork(const std::optional<WeightsFile>& w,
   if (weights.format().network_format().default_activation() !=
           pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU &&
       weights.format().network_format().default_activation() !=
-          pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH) {
+          pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH &&
+      weights.format().network_format().default_activation() !=
+          pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH) {
     throw Exception(
         "Default activation " +
         pblczero::NetworkFormat::DefaultActivation_Name(

@@ -1007,9 +1007,18 @@ BlasNetwork<use_eigen>::BlasNetwork(const WeightsFile& file,
   attn_body_ = nf.network() == NF::NETWORK_ATTENTIONBODY_WITH_HEADFORMAT ||
                nf.network() == NF::NETWORK_ATTENTIONBODY_WITH_MULTIHEADFORMAT;
 
-  default_activation_ = nf.default_activation() == NF::DEFAULT_ACTIVATION_MISH
-                            ? ACTIVATION_MISH
-                            : ACTIVATION_RELU;
+  switch (nf.default_activation()) {
+    case NF::DEFAULT_ACTIVATION_MISH:
+      default_activation_ = ACTIVATION_MISH;
+      break;
+    case NF::DEFAULT_ACTIVATION_SWISH:
+      default_activation_ = ACTIVATION_SWISH;
+      break;
+    case NF::DEFAULT_ACTIVATION_RELU:
+    default:
+      default_activation_ = ACTIVATION_RELU;
+      break;
+  }
 
   is_pe_dense_embedding_ =
       static_cast<InputEmbedding>(
@@ -1162,6 +1171,7 @@ std::unique_ptr<Network> MakeBlasNetwork(const std::optional<WeightsFile>& w,
   switch (nf.default_activation()) {
     case NF::DEFAULT_ACTIVATION_RELU:
     case NF::DEFAULT_ACTIVATION_MISH:
+    case NF::DEFAULT_ACTIVATION_SWISH:
       break;
     default:
       throw Exception("Default activation " +

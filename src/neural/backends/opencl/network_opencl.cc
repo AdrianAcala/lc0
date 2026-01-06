@@ -468,7 +468,7 @@ std::unique_ptr<Network> MakeOpenCLNetwork(const std::optional<WeightsFile>& w,
         "Default activation " +
         pblczero::NetworkFormat::DefaultActivation_Name(
             weights.format().network_format().default_activation()) +
-        " is not supported by BLAS backend.");
+        " is not supported by OpenCL backend.");
   }
   return std::make_unique<OpenCLNetwork>(weights, options);
 }

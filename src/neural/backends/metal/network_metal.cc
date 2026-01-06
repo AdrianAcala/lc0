@@ -124,11 +124,18 @@ MetalNetwork::MetalNetwork(const WeightsFile& file, const OptionsDict& options)
 
   // Build MPS Graph.
   Activations activations;
-  activations.default_activation =
-      file.format().network_format().default_activation() ==
-              pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH
-          ? "mish"
-          : "relu";
+  switch (file.format().network_format().default_activation()) {
+    case pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH:
+      activations.default_activation = "mish";
+      break;
+    case pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH:
+      activations.default_activation = "swish";
+      break;
+    case pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU:
+    default:
+      activations.default_activation = "relu";
+      break;
+  }
   const auto smolgen_activation =
       file.format().network_format().smolgen_activation();
   activations.smolgen_activation =
@@ -234,6 +241,7 @@ std::unique_ptr<Network> MakeMetalNetwork(const std::optional<WeightsFile>& w,
   switch (nf.default_activation()) {
     case NF::DEFAULT_ACTIVATION_RELU:
     case NF::DEFAULT_ACTIVATION_MISH:
+    case NF::DEFAULT_ACTIVATION_SWISH:
       break;
     default:
       throw Exception("Default activation " +

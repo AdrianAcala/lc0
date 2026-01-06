@@ -373,10 +373,22 @@ class SyclNetwork : public Network {
 
     scratch_mem_ = (void*)sycl::malloc_device(scratch_size_, *sycl_queue_);
 
-    const bool mish_net = file.format().network_format().default_activation() ==
-                          pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH;
-
-    ActivationFunction act = mish_net ? ACTIVATION_MISH : ACTIVATION_RELU;
+    ActivationFunction act = ACTIVATION_RELU;
+    switch (file.format().network_format().default_activation()) {
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_RELU:
+        act = ACTIVATION_RELU;
+        break;
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_MISH:
+        act = ACTIVATION_MISH;
+        break;
+      case pblczero::NetworkFormat::DEFAULT_ACTIVATION_SWISH:
+        act = ACTIVATION_SWISH;
+        break;
+      default:
+        // Keep the previous behavior for unknown values.
+        act = ACTIVATION_RELU;
+        break;
+    }
 
     // 2. Build the network, and copy the weights to GPU memory.
 
@@ -1116,6 +1128,7 @@ std::unique_ptr<Network> MakeSyclNetwork(const std::optional<WeightsFile>& w,
   switch (nf.default_activation()) {
     case NF::DEFAULT_ACTIVATION_RELU:
     case NF::DEFAULT_ACTIVATION_MISH:
+    case NF::DEFAULT_ACTIVATION_SWISH:
       break;
     default:
       throw Exception("Default activation " +
